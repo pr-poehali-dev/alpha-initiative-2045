@@ -45,6 +45,35 @@ export default function StatsPanel({ pet }: Props) {
         </div>
       </div>
 
+      {/* Здоровье */}
+      <div className="mb-2">
+        <div className="flex items-center justify-between font-lcd text-lg text-white/80 mb-0.5">
+          <span className="flex items-center gap-1">❤️ Здоровье</span>
+          <span style={{ color: pet.health < 25 ? '#ff4040' : 'inherit' }}>{Math.round(pet.health)}</span>
+        </div>
+        <div className="h-3 rounded-full bg-white/10 overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${pet.health}%`, background: pet.health > 60 ? '#4ade80' : pet.health > 30 ? '#facc15' : '#f87171' }} />
+        </div>
+      </div>
+
+      {/* Холод */}
+      {pet.cold > 0 && (
+        <div className="mb-2">
+          <div className="flex items-center justify-between font-lcd text-lg text-[#7ef] mb-0.5">
+            <span>❄️ Холод</span>
+            <span>{Math.round(pet.cold)}</span>
+          </div>
+          <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-500 bg-[#7ef]"
+              style={{ width: `${pet.cold}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* Монеты */}
+      <div className="mb-3 font-lcd text-lg text-[#ffd23f]">🪙 Монет: {pet.coins}</div>
+
       {/* Статы */}
       <div className="space-y-2">
         {STATS.map(st => {
@@ -66,6 +95,17 @@ export default function StatsPanel({ pet }: Props) {
           );
         })}
       </div>
+
+      {pet.state === 'dead' && (
+        <div className="mt-4 text-center font-pixel text-[10px] text-red-400 animate-pulse">
+          💀 Питомец умер. Воскреси в магазине!
+        </div>
+      )}
+      {pet.state === 'frozen' && (
+        <div className="mt-4 text-center font-lcd text-xl text-[#7ef]" style={{ animation: 'frozenShake 0.2s infinite' }}>
+          🥶 Замёрз! Помой горячей водой или уложи спать!
+        </div>
+      )}
     </div>
   );
 }

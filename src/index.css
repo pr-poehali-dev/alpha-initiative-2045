@@ -156,3 +156,102 @@
     background-size: 22px 22px;
   }
 }
+
+/* ── Pet SVG animation keyframes ────────────────── */
+@keyframes legWalkA {
+  0% {
+    transform: rotate(-25deg);
+  }
+  100% {
+    transform: rotate(25deg);
+  }
+}
+@keyframes legWalkB {
+  0% {
+    transform: rotate(25deg);
+  }
+  100% {
+    transform: rotate(-25deg);
+  }
+}
+@keyframes legJumpA {
+  0% {
+    transform: scaleY(0.8) translateY(4px);
+  }
+  100% {
+    transform: scaleY(1.1) translateY(-3px);
+  }
+}
+@keyframes legJumpB {
+  0% {
+    transform: scaleY(1.1) translateY(-3px);
+  }
+  100% {
+    transform: scaleY(0.8) translateY(4px);
+  }
+}
+@keyframes tailWag {
+  0% {
+    transform: rotate(-30deg);
+  }
+  100% {
+    transform: rotate(30deg);
+  }
+}
+@keyframes tailCatWag {
+  0% {
+    transform: rotate(-20deg);
+  }
+  100% {
+    transform: rotate(40deg);
+  }
+}
+@keyframes earWag {
+  0% {
+    transform: rotate(-8deg);
+  }
+  100% {
+    transform: rotate(8deg);
+  }
+}
+@keyframes rabbitEarL {
+  0% {
+    transform: rotate(-12deg);
+  }
+  100% {
+    transform: rotate(6deg);
+  }
+}
+@keyframes rabbitEarR {
+  0% {
+    transform: rotate(6deg);
+  }
+  100% {
+    transform: rotate(-12deg);
+  }
+}
+@keyframes frozenShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+@keyframes snowfall {
+  0% {
+    transform: translateY(-20px) rotate(0deg);
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(110vh) rotate(720deg);
+    opacity: 0;
+  }
+}

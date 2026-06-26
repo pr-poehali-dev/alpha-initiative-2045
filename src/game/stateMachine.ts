@@ -1,4 +1,4 @@
-import type { PetData, PetState, Action, PetStats } from './types';
+import type { PetData, PetState, Action, PetStats, Season } from './types';
 
 const clamp = (v: number) => Math.max(0, Math.min(100, v));
 
@@ -32,6 +32,9 @@ const ACTION_DURATION: Record<Action, number> = {
 
 export function applyAction(pet: PetData, action: Action): PetData {
   const effects = ACTION_EFFECTS[action];
+  const isWarm = action === 'wash' || action === 'sleep';
+  const coldReduction = isWarm ? 40 : 0;
+  const coinBonus = action === 'feed' ? 5 : 2;
   return {
     ...pet,
     state: ACTION_STATE[action],
@@ -41,7 +44,9 @@ export function applyAction(pet: PetData, action: Action): PetData {
       energy:    clamp(pet.stats.energy    + (effects.energy    ?? 0)),
       hygiene:   clamp(pet.stats.hygiene   + (effects.hygiene   ?? 0)),
     },
+    cold: clamp(pet.cold - coldReduction),
     xp: pet.xp + 10,
+    coins: pet.coins + coinBonus,
   };
 }
 
@@ -49,17 +54,36 @@ export function getActionDuration(action: Action): number {
   return ACTION_DURATION[action];
 }
 
-export function decayStats(pet: PetData, delta: number): PetData {
+export function decayStats(pet: PetData, delta: number, season: Season): PetData {
+  if (pet.state === 'dead' || pet.state === 'frozen') return pet;
   if (pet.state !== 'idle' && pet.state !== 'walking') return pet;
+
   const secs = delta / 1000;
+  const newStats: PetStats = {
+    hunger:    clamp(pet.stats.hunger    - STAT_DECAY.hunger    * secs),
+    happiness: clamp(pet.stats.happiness - STAT_DECAY.happiness * secs),
+    energy:    clamp(pet.stats.energy    - STAT_DECAY.energy    * secs),
+    hygiene:   clamp(pet.stats.hygiene   - STAT_DECAY.hygiene   * secs),
+  };
+
+  const avg = (newStats.hunger + newStats.happiness + newStats.energy + newStats.hygiene) / 4;
+  const healthDelta = avg < 10 ? -8 * secs : avg < 25 ? -2 * secs : 0.5 * secs;
+  const newHealth = clamp(pet.health + healthDelta);
+
+  const coldDecay = season === 'winter' ? 6 * secs : 0;
+  const newCold = clamp(pet.cold + coldDecay);
+
+  let newState = pet.state;
+  if (newHealth <= 0) newState = 'dead';
+  else if (newCold >= 100) newState = 'frozen';
+  else if (newHealth < 20 && pet.state !== 'dying') newState = 'dying';
+
   return {
     ...pet,
-    stats: {
-      hunger:    clamp(pet.stats.hunger    - STAT_DECAY.hunger    * secs),
-      happiness: clamp(pet.stats.happiness - STAT_DECAY.happiness * secs),
-      energy:    clamp(pet.stats.energy    - STAT_DECAY.energy    * secs),
-      hygiene:   clamp(pet.stats.hygiene   - STAT_DECAY.hygiene   * secs),
-    },
+    stats: newStats,
+    health: newHealth,
+    cold: newCold,
+    state: newState,
   };
 }
 
