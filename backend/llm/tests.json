@@ -1,0 +1,22 @@
+{
+  "tests": [
+    {
+      "name": "Feed cat command",
+      "method": "POST",
+      "path": "/",
+      "body": { "message": "накорми кошку" },
+      "expectedStatus": 200,
+      "expectedBody": { "action": "string", "message": "string" },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Spawn tree command",
+      "method": "POST",
+      "path": "/",
+      "body": { "message": "добавь дерево" },
+      "expectedStatus": 200,
+      "expectedBody": { "action": "string" },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

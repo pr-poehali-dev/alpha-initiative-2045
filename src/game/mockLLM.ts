@@ -84,32 +84,40 @@ const RULES: Rule[] = [
     response: { action: 'say', message: '🧹 Поле очищено от объектов!', emotion: 'normal' } },
 ];
 
+const LLM_URL = 'https://functions.poehali.dev/20f08de5-d797-471a-a1ba-cb121cc86d37';
+
 function delay(ms: number) {
   return new Promise<void>(r => setTimeout(r, ms));
 }
 
-export async function mockLLM(input: string): Promise<LLMResponse> {
-  await delay(600 + Math.random() * 400); // имитация задержки API
-
+function mockFallback(input: string): LLMResponse {
   const lower = input.toLowerCase();
-
   for (const rule of RULES) {
     if (rule.keywords.some(kw => lower.includes(kw))) {
-      // Случайная позиция X для spawn
-      if (rule.response.action === 'spawn') {
-        return { ...rule.response, x: 30 + Math.random() * 40 };
-      }
+      if (rule.response.action === 'spawn') return { ...rule.response, x: 30 + Math.random() * 40 };
       return rule.response;
     }
   }
+  const s = ['накорми кошку', 'добавь дерево', 'поиграй с Рексом'][Math.floor(Math.random() * 3)];
+  return { action: 'error', message: `🤔 Не понял команду. Попробуй: «${s}»` };
+}
 
-  // Дефолт — не распознано
-  const suggestions = ['накорми кошку', 'добавь дерево', 'поиграй с Рексом', 'уложи Зайку спать', 'помой Хому'];
-  const s = suggestions[Math.floor(Math.random() * suggestions.length)];
-  return {
-    action: 'error',
-    message: `🤔 Не понял команду. Попробуй: «${s}»`,
-  };
+export async function mockLLM(input: string): Promise<LLMResponse> {
+  try {
+    const res = await fetch(LLM_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: input }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.action) return data as LLMResponse;
+    throw new Error('bad response');
+  } catch {
+    // Fallback на локальные правила при ошибке API
+    await delay(400);
+    return mockFallback(input);
+  }
 }
 
 export const JSON_FORMAT_EXAMPLE = `
