@@ -105,11 +105,21 @@ export default {
 				'blink': {
 					'0%, 100%': { opacity: '1' },
 					'50%': { opacity: '0.2' }
+				},
+				'breathe': {
+					'0%, 100%': { transform: 'scaleY(1)' },
+					'50%': { transform: 'scaleY(1.06)' }
+				},
+				'fade-in': {
+					'0%': { opacity: '0', transform: 'translateY(-8px) translateX(-50%)' },
+					'100%': { opacity: '1', transform: 'translateY(0) translateX(-50%)' }
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
 				'accordion-up': 'accordion-up 0.2s ease-out',
+				'breathe': 'breathe 2s ease-in-out infinite',
+				'fade-in': 'fade-in 0.3s ease-out forwards',
 				'pet-bounce': 'pet-bounce 1.6s ease-in-out infinite',
 				'pet-wobble': 'pet-wobble 0.6s ease-in-out',
 				'screen-flicker': 'screen-flicker 4s linear infinite',

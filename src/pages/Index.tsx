@@ -1,212 +1,260 @@
-import { useState, useEffect, useRef } from 'react';
-import Icon from '@/components/ui/icon';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type { PetData, Action } from '@/game/types';
+import { applyAction, getActionDuration, decayStats, getXpToLevel } from '@/game/stateMachine';
+import GameField from '@/components/GameField';
+import StatsPanel from '@/components/StatsPanel';
+import ActionBar from '@/components/ActionBar';
+import ConceptGallery from '@/components/ConceptGallery';
 
-type Stat = 'hunger' | 'happiness' | 'energy' | 'hygiene';
-
-type Pet = { id: string; name: string; emoji: string; img?: string };
-
-const PETS: Pet[] = [
-  { id: 'capybara', name: 'КАПИ', emoji: '🦫', img: 'https://cdn.poehali.dev/projects/75faf0d1-dec3-489b-887e-0dcecb269115/bucket/a3eed8c8-a293-4143-ae56-aa3f6a5d3d5a.PNG' },
-  { id: 'cat', name: 'МУРКА', emoji: '🐱' },
-  { id: 'dog', name: 'РЕКС', emoji: '🐶' },
-  { id: 'fox', name: 'ФОКСИ', emoji: '🦊' },
-  { id: 'panda', name: 'ПАНДА', emoji: '🐼' },
-  { id: 'frog', name: 'КВАК', emoji: '🐸' },
-  { id: 'penguin', name: 'ПИНГ', emoji: '🐧' },
-  { id: 'rabbit', name: 'ЗАЙ', emoji: '🐰' },
-  { id: 'dragon', name: 'ДРАКО', emoji: '🐲' },
-  { id: 'chick', name: 'ЦЫПА', emoji: '🐤' },
+const CONCEPT_ARTS = [
+  'https://cdn.poehali.dev/projects/75faf0d1-dec3-489b-887e-0dcecb269115/files/da0e4bd0-3d2e-4aa3-bcab-045172ee60cc.jpg',
+  'https://cdn.poehali.dev/projects/75faf0d1-dec3-489b-887e-0dcecb269115/files/90c80a0e-d0a3-4cc4-8fbe-3af0cb8621f2.jpg',
+  'https://cdn.poehali.dev/projects/75faf0d1-dec3-489b-887e-0dcecb269115/files/745e3ea3-038e-46c9-88ef-5e6504f17949.jpg',
+  'https://cdn.poehali.dev/projects/75faf0d1-dec3-489b-887e-0dcecb269115/files/ec5774c5-af4d-4957-9cae-46b05f3e9664.jpg',
 ];
 
-const STATS: { key: Stat; label: string }[] = [
-  { key: 'hunger', label: 'Сытость' },
-  { key: 'happiness', label: 'Радость' },
-  { key: 'energy', label: 'Энергия' },
-  { key: 'hygiene', label: 'Чистота' },
+const INITIAL_PETS: PetData[] = [
+  { id: 'dog1',     kind: 'dog',     name: 'РЕКС',   state: 'walking', stats: { hunger: 80, happiness: 85, energy: 70, hygiene: 90 }, x: 10, y: 55, dir: 1,  targetX: 30, targetY: 55, level: 1, xp: 0 },
+  { id: 'cat1',     kind: 'cat',     name: 'МУРКА',  state: 'idle',    stats: { hunger: 75, happiness: 90, energy: 80, hygiene: 85 }, x: 40, y: 60, dir: -1, targetX: 60, targetY: 60, level: 1, xp: 0 },
+  { id: 'rabbit1',  kind: 'rabbit',  name: 'ЗАЙ',    state: 'walking', stats: { hunger: 70, happiness: 78, energy: 65, hygiene: 80 }, x: 65, y: 58, dir: 1,  targetX: 80, targetY: 58, level: 1, xp: 0 },
+  { id: 'hamster1', kind: 'hamster', name: 'ХОМА',   state: 'idle',    stats: { hunger: 85, happiness: 72, energy: 75, hygiene: 92 }, x: 80, y: 62, dir: -1, targetX: 50, targetY: 62, level: 1, xp: 0 },
 ];
 
-const ACTIONS: { id: string; label: string; icon: string; bump: Partial<Record<Stat, number>>; emoji: string }[] = [
-  { id: 'feed', label: 'Покормить', icon: 'Apple', emoji: '🍎', bump: { hunger: 30, energy: 5, happiness: 4 } },
-  { id: 'play', label: 'Играть', icon: 'Gamepad2', emoji: '🎮', bump: { happiness: 28, energy: -12, hunger: -8 } },
-  { id: 'wash', label: 'Помыть', icon: 'Droplets', emoji: '🛁', bump: { hygiene: 40, happiness: 6 } },
-  { id: 'sleep', label: 'Спать', icon: 'Moon', emoji: '😴', bump: { energy: 45, hunger: -6 } },
-];
+const rand = (min: number, max: number) => Math.random() * (max - min) + min;
 
-const clamp = (v: number) => Math.max(0, Math.min(100, v));
+function leveled(pet: PetData): PetData {
+  const needed = getXpToLevel(pet.level);
+  if (pet.xp >= needed) return { ...pet, level: pet.level + 1, xp: pet.xp - needed };
+  return pet;
+}
 
-const Index = () => {
-  const [pet, setPet] = useState<Pet | null>(null);
-  const [stats, setStats] = useState<Record<Stat, number>>({
-    hunger: 72, happiness: 80, energy: 65, hygiene: 90,
-  });
-  const [age, setAge] = useState(0);
-  const [floatEmoji, setFloatEmoji] = useState<string | null>(null);
-  const [wobble, setWobble] = useState(false);
-  const floatKey = useRef(0);
+export default function Index() {
+  const [pets, setPets] = useState<PetData[]>(INITIAL_PETS);
+  const [selectedId, setSelectedId] = useState<string>('dog1');
+  const [notification, setNotification] = useState<string | null>(null);
+  const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const lastTickRef = useRef<number>(Date.now());
 
+  const notify = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 2500);
+  };
+
+  // Движение / блуждание питомцев
   useEffect(() => {
-    if (!pet) return;
-    const decay = setInterval(() => {
-      setStats((s) => ({
-        hunger: clamp(s.hunger - 2),
-        happiness: clamp(s.happiness - 1.5),
-        energy: clamp(s.energy - 1),
-        hygiene: clamp(s.hygiene - 1.2),
+    const roam = setInterval(() => {
+      setPets(prev => prev.map(pet => {
+        if (pet.state !== 'idle' && pet.state !== 'walking') return pet;
+        const dx = Math.abs(pet.x - pet.targetX);
+        const dy = Math.abs(pet.y - pet.targetY);
+        const arrived = dx < 2 && dy < 2;
+        if (arrived) {
+          const newTarget = { targetX: rand(5, 88), targetY: rand(50, 72) };
+          const newDir: 1 | -1 = newTarget.targetX > pet.x ? 1 : -1;
+          const newState = Math.random() > 0.35 ? 'walking' as const : 'idle' as const;
+          return { ...pet, ...newTarget, state: newState, dir: newDir };
+        }
+        const speed = 1.5;
+        const newX = pet.x + Math.sign(pet.targetX - pet.x) * Math.min(speed, dx);
+        const newY = pet.y + Math.sign(pet.targetY - pet.y) * Math.min(speed * 0.3, dy);
+        const dir: 1 | -1 = pet.targetX > pet.x ? 1 : -1;
+        return { ...pet, x: newX, y: newY, dir, state: 'walking' };
       }));
-    }, 3000);
-    const grow = setInterval(() => setAge((a) => a + 1), 15000);
-    return () => { clearInterval(decay); clearInterval(grow); };
-  }, [pet]);
+    }, 300);
+    return () => clearInterval(roam);
+  }, []);
 
-  const avg = (stats.hunger + stats.happiness + stats.energy + stats.hygiene) / 4;
-  const mood = avg > 70 ? '◕‿◕' : avg > 40 ? '·_·' : avg > 20 ? '╥﹏╥' : '✕_✕';
-  const moodText = avg > 70 ? 'Счастлив!' : avg > 40 ? 'Нормально' : avg > 20 ? 'Грустит...' : 'Болеет!';
+  // Деградация статов
+  useEffect(() => {
+    const tick = setInterval(() => {
+      const now = Date.now();
+      const delta = now - lastTickRef.current;
+      lastTickRef.current = now;
+      setPets(prev => prev.map(p => leveled(decayStats(p, delta))));
+    }, 2000);
+    return () => clearInterval(tick);
+  }, []);
 
-  const doAction = (a: typeof ACTIONS[number]) => {
-    setStats((s) => {
-      const next = { ...s };
-      (Object.keys(a.bump) as Stat[]).forEach((k) => { next[k] = clamp(next[k] + (a.bump[k] || 0)); });
-      return next;
-    });
-    floatKey.current += 1;
-    setFloatEmoji(a.emoji);
-    setWobble(true);
-    setTimeout(() => setWobble(false), 600);
-    setTimeout(() => setFloatEmoji(null), 1000);
-  };
+  const handleAction = useCallback((action: Action) => {
+    const pet = pets.find(p => p.id === selectedId);
+    if (!pet) return;
+    if (timersRef.current[selectedId]) clearTimeout(timersRef.current[selectedId]);
 
-  const choosePet = (p: Pet) => {
-    setPet(p);
-    setStats({ hunger: 80, happiness: 90, energy: 80, hygiene: 95 });
-    setAge(0);
-  };
+    const actionLabels: Record<Action, string> = {
+      sleep: `${pet.name} ложится спать... 😴`,
+      play:  `${pet.name} бежит играть! 🎮`,
+      feed:  `${pet.name} мчится к миске! 🍖`,
+      wash:  `${pet.name} идёт мыться! 🛁`,
+    };
+    notify(actionLabels[action]);
 
-  // ===== ЭКРАН ВЫБОРА ПИТОМЦА =====
-  if (!pet) {
-    return (
-      <div className="dotgrid-bg min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 font-body">
-        <header className="text-center mb-8 select-none">
-          <h1 className="font-pixel text-xl sm:text-3xl text-white tracking-tight leading-relaxed"
-            style={{ textShadow: '4px 4px 0 #d61f6e, 8px 8px 0 rgba(0,0,0,0.3)' }}>
-            ВЫБЕРИ ПИТОМЦА
+    const destinations: Record<Action, { x: number; y: number }> = {
+      sleep: { x: 45, y: 60 },
+      play:  { x: 70, y: 55 },
+      feed:  { x: 20, y: 65 },
+      wash:  { x: 55, y: 55 },
+    };
+    const dest = destinations[action];
+
+    setPets(prev => prev.map(p => p.id !== selectedId ? p : {
+      ...applyAction(p, action),
+      targetX: dest.x, targetY: dest.y,
+      x: dest.x, y: dest.y,
+    }));
+
+    const duration = getActionDuration(action);
+    timersRef.current[selectedId] = setTimeout(() => {
+      const afterLabels: Record<Action, string> = {
+        sleep: `${pet.name} выспался! ⭐`,
+        play:  `${pet.name} наигрался! 🌟`,
+        feed:  `${pet.name} наелся! ✨`,
+        wash:  `${pet.name} чистый! 💫`,
+      };
+      if (action === 'wash') {
+        setPets(prev => prev.map(p => p.id !== selectedId ? p : { ...p, state: 'drying' }));
+        setTimeout(() => {
+          notify(afterLabels[action]);
+          setPets(prev => prev.map(p => p.id !== selectedId ? p : { ...p, state: 'idle' }));
+        }, 2000);
+      } else {
+        notify(afterLabels[action]);
+        setPets(prev => prev.map(p => p.id !== selectedId ? p : { ...p, state: 'idle' }));
+      }
+    }, duration);
+  }, [pets, selectedId]);
+
+  const selectedPet = pets.find(p => p.id === selectedId) ?? pets[0];
+
+  const kindEmoji: Record<string, string> = { dog: '🐕', cat: '🐈', rabbit: '🐇', hamster: '🐹' };
+
+  return (
+    <div className="dotgrid-bg min-h-screen flex flex-col font-body px-4 sm:px-10 py-8 gap-6">
+
+      {/* Шапка */}
+      <header className="w-full flex flex-wrap items-center justify-between gap-4 select-none">
+        <div>
+          <h1 className="font-pixel text-xl sm:text-3xl text-white leading-tight"
+            style={{ textShadow: '3px 3px 0 #d61f6e, 6px 6px 0 rgba(0,0,0,0.3)' }}>
+            ТАМАГОЧИ
           </h1>
-          <p className="font-pixel text-[10px] sm:text-xs text-[#ffd23f] mt-3 tracking-widest">10 ДРУЗЕЙ ЖДУТ ТЕБЯ</p>
-        </header>
-
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 max-w-[680px]">
-          {PETS.map((p) => (
-            <button key={p.id} onClick={() => choosePet(p)}
-              className="retro-btn group rounded-3xl p-3 bg-[#fff5d6] hover:bg-white flex flex-col items-center gap-2 w-[150px] sm:w-auto">
-              <div className="lcd-screen rounded-xl w-full aspect-square flex items-center justify-center overflow-hidden">
-                {p.img ? (
-                  <img src={p.img} alt={p.name} className="w-full h-full object-cover pixelated mix-blend-multiply opacity-90" />
-                ) : (
-                  <span className="text-4xl sm:text-5xl group-hover:animate-pet-wobble">{p.emoji}</span>
-                )}
-              </div>
-              <span className="font-pixel text-[10px] text-[#7a1f4d] mt-1">{p.name}</span>
+          <p className="font-pixel text-[9px] text-[#ffd23f] tracking-widest mt-1">RETRO PET WORLD • 199X</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {pets.map(p => (
+            <button
+              key={p.id}
+              onClick={() => setSelectedId(p.id)}
+              className="retro-btn rounded-xl px-3 py-2 font-pixel text-[9px] flex flex-col items-center gap-1 transition-all"
+              style={{
+                background: p.id === selectedId ? '#d61f6e' : '#ffffff18',
+                color: 'white',
+                outline: p.id === selectedId ? '2px solid #ffd23f' : 'none',
+              }}
+            >
+              <span className="text-xl">{kindEmoji[p.kind]}</span>
+              {p.name}
             </button>
           ))}
         </div>
-
-        <p className="font-lcd text-xl text-white/50 mt-8">Нажми на питомца, чтобы начать игру</p>
-        <footer className="mt-6 font-pixel text-[8px] text-white/30 tracking-widest">© 199X RETRO PET CO.</footer>
-      </div>
-    );
-  }
-
-  // ===== ЭКРАН ИГРЫ =====
-  return (
-    <div className="dotgrid-bg min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 font-body">
-      <header className="text-center mb-6 select-none">
-        <h1 className="font-pixel text-2xl sm:text-4xl text-white tracking-tight leading-relaxed"
-          style={{ textShadow: '4px 4px 0 #d61f6e, 8px 8px 0 rgba(0,0,0,0.3)' }}>
-          ТАМАГОЧИ
-        </h1>
-        <button onClick={() => setPet(null)}
-          className="font-pixel text-[9px] text-[#ffd23f] mt-3 tracking-widest hover:text-white inline-flex items-center gap-1">
-          <Icon name="ChevronLeft" size={12} /> СМЕНИТЬ ПИТОМЦА
-        </button>
       </header>
 
-      {/* Корпус игрушки */}
-      <div className="shell-plastic relative w-[340px] sm:w-[400px] rounded-[48px] p-6 sm:p-8 pb-10">
-        {['top-5 left-5', 'top-5 right-5', 'bottom-5 left-5', 'bottom-5 right-5'].map((p) => (
-          <div key={p} className={`absolute ${p} w-3 h-3 rounded-full bg-black/30 shadow-inner`} />
-        ))}
+      {/* Уведомление */}
+      {notification && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-[#ffd23f] text-[#1a1033] font-pixel text-[11px] px-5 py-3 rounded-2xl shadow-xl animate-fade-in">
+          {notification}
+        </div>
+      )}
 
-        {/* Экран */}
-        <div className="lcd-screen animate-screen-flicker rounded-2xl px-4 pt-5 pb-4 relative overflow-hidden">
-          <div className="flex items-center justify-between font-lcd text-[#0f380f] text-xl leading-none mb-2">
-            <span>{pet.name}</span>
-            <span>AGE:{age}</span>
-          </div>
+      {/* Основной контент */}
+      <div className="w-full flex flex-col lg:flex-row gap-5">
+        <div className="flex-1 flex flex-col gap-4">
+          <GameField
+            pets={pets}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            conceptArts={CONCEPT_ARTS}
+          />
+          <ActionBar
+            onAction={handleAction}
+            disabled={pets.length === 0}
+            activePetState={selectedPet?.state ?? 'idle'}
+          />
+        </div>
+        {selectedPet && <StatsPanel pet={selectedPet} />}
+      </div>
 
-          {/* Сцена с питомцем */}
-          <div className="relative h-44 flex flex-col items-center justify-end pb-2">
-            {floatEmoji && (
-              <span key={floatKey.current} className="absolute top-0 text-3xl animate-pop-in">{floatEmoji}</span>
-            )}
-            <div className={`flex flex-col items-center ${wobble ? 'animate-pet-wobble' : 'animate-pet-bounce'}`}>
-              {pet.img ? (
-                <img src={pet.img} alt={pet.name}
-                  className="w-28 h-24 object-cover pixelated mix-blend-multiply opacity-90 rounded-md" />
-              ) : (
-                <span className="text-6xl">{pet.emoji}</span>
-              )}
-              <div className="text-2xl mt-1"
-                style={{ color: '#0f380f', fontFamily: '"VT323", monospace' }}>{mood}</div>
+      {/* Концепт-арты */}
+      <ConceptGallery images={CONCEPT_ARTS} />
+
+      {/* ТЗ и монетизация */}
+      <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-5 mt-2">
+        <div className="rounded-3xl bg-white/5 border border-white/10 p-6">
+          <h2 className="font-pixel text-sm text-[#ffd23f] mb-4">ТЕХНИЧЕСКОЕ ЗАДАНИЕ</h2>
+          <div className="space-y-4 font-lcd text-xl text-white/80">
+            <div>
+              <div className="text-white font-bold mb-1">Животные и анимации</div>
+              <ul className="space-y-1 text-white/70 text-lg">
+                <li>🐕 Собака — idle / ходьба / сон / бег за мячом / еда / душ+фен</li>
+                <li>🐈 Кошка — idle / крадётся / спит клубком / охотится / ест рыбу</li>
+                <li>🐇 Кролик — idle / прыжки / сон / тянется за морковкой</li>
+                <li>🐹 Хомяк — idle / бег / сон / колесо / семечки</li>
+              </ul>
             </div>
-            <div className="w-full h-2 mt-2 bg-[#0f380f]/25"
-              style={{ backgroundImage: 'repeating-linear-gradient(90deg,#0f380f33 0 6px,transparent 6px 12px)' }} />
-            <div className="font-lcd text-2xl text-[#0f380f] mt-1 animate-blink">{moodText}</div>
-          </div>
-
-          {/* Статы */}
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-2">
-            {STATS.map((st) => (
-              <div key={st.key} className="font-lcd text-lg text-[#0f380f] leading-none">
-                <div className="flex items-center justify-between mb-0.5">
-                  <span>{st.label}</span>
-                  <span>{Math.round(stats[st.key])}</span>
-                </div>
-                <div className="h-2 bg-[#0f380f]/15 border border-[#0f380f]/40">
-                  <div className="h-full bg-[#0f380f] transition-all duration-500"
-                    style={{ width: `${stats[st.key]}%` }} />
-                </div>
+            <div>
+              <div className="text-white font-bold mb-1">Ключевые кадры (на животное)</div>
+              <ul className="space-y-0.5 text-white/70 text-lg">
+                <li>• idle_1, idle_2 (дыхание / мигание)</li>
+                <li>• walk_1, walk_2 (переступание лап)</li>
+                <li>• action_start, action_loop, action_end</li>
+                <li>• sleep_loop (грудь поднимается)</li>
+              </ul>
+            </div>
+            <div>
+              <div className="text-white font-bold mb-1">State Machine</div>
+              <div className="text-white/60 font-pixel text-[9px] bg-black/20 rounded-xl p-3 leading-loose">
+                idle ↔ walking{'\n'}
+                any → sleeping → idle{'\n'}
+                any → playing → idle{'\n'}
+                any → eating → idle{'\n'}
+                any → bathing → drying → idle
               </div>
-            ))}
+            </div>
           </div>
         </div>
 
-        {/* Кнопки управления */}
-        <div className="grid grid-cols-2 gap-3 mt-7">
-          {ACTIONS.map((a) => (
-            <button key={a.id} onClick={() => doAction(a)}
-              className="retro-btn rounded-2xl py-3 px-2 bg-[#fff5d6] text-[#7a1f4d] font-pixel text-[10px] flex flex-col items-center gap-2 active:bg-[#ffe9b0]">
-              <Icon name={a.icon} size={22} className="text-[#d61f6e]" />
-              {a.label}
-            </button>
-          ))}
+        <div className="space-y-4">
+          <div className="rounded-3xl bg-white/5 border border-white/10 p-6">
+            <h2 className="font-pixel text-sm text-[#3bceac] mb-3">СПИСОК АССЕТОВ</h2>
+            <div className="font-lcd text-lg text-white/70 space-y-1">
+              <div className="text-white/90">Спрайт-листы (PNG 512×512, 8 кадров):</div>
+              <div>• dog_idle / walk / sleep / play / eat / bath / dry</div>
+              <div>• [аналогично: cat, rabbit, hamster]</div>
+              <div className="text-white/90 mt-2">Пропсы:</div>
+              <div>• bowl.png, ball.png, mouse_toy.png, carrot.png</div>
+              <div>• shower_head.png, hair_dryer.png, wheel.png</div>
+              <div className="text-white/90 mt-2">Фоны:</div>
+              <div>• bg_room.png, bg_kitchen.png, bg_bathroom.png</div>
+              <div className="text-white/90 mt-2">Звуки (MP3/OGG):</div>
+              <div>• munch.mp3, splash.mp3, snore.mp3, play_jingle.mp3</div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl bg-white/5 border border-white/10 p-6">
+            <h2 className="font-pixel text-sm text-[#ff6b35] mb-3">5 ИДЕЙ МОНЕТИЗАЦИИ</h2>
+            <div className="font-lcd text-xl text-white/80 space-y-2">
+              <div>🎨 <b>Скины и аксессуары</b> — шляпы, ошейники, фоны за монеты</div>
+              <div>🐾 <b>Новые питомцы</b> — капибара, аксолотль — за уровень или покупку</div>
+              <div>⚡ <b>Ускорители</b> — «суперсон», «быстрая еда» — мгновенный буст статов</div>
+              <div>🏆 <b>Сезонные ивенты</b> — праздничные предметы, ограниченные питомцы</div>
+              <div>💎 <b>Premium-подписка</b> — офлайн-бонусы, больше слотов, эксклюзивные анимации</div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Онлайн с друзьями */}
-      <div className="mt-8 w-[340px] sm:w-[400px] rounded-3xl bg-white/5 backdrop-blur border border-white/10 p-5 text-center">
-        <div className="flex items-center justify-center gap-2 text-[#3bceac] font-pixel text-[10px] mb-3">
-          <span className="w-2 h-2 rounded-full bg-[#3bceac] animate-blink" />
-          ИГРАТЬ С ДРУЗЬЯМИ ОНЛАЙН
-        </div>
-        <button className="retro-btn rounded-2xl w-full py-3 bg-[#ffd23f] text-[#7a1f4d] font-pixel text-[11px] flex items-center justify-center gap-2">
-          <Icon name="Users" size={18} />
-          СОЗДАТЬ КОМНАТУ
-        </button>
-        <p className="font-lcd text-xl text-white/50 mt-3">Позови друга и ухаживайте за питомцем вместе</p>
-      </div>
-
-      <footer className="mt-8 font-pixel text-[8px] text-white/30 tracking-widest">© 199X RETRO PET CO.</footer>
+      <footer className="w-full text-center font-pixel text-[8px] text-white/20 tracking-widest pb-4">
+        © 199X RETRO PET CO. • STATE MACHINE v1.0
+      </footer>
     </div>
   );
-};
-
-export default Index;
+}
